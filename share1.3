@@ -1,12 +1,12 @@
-# Paramètres
 #chemin d'execution du script copié dans le dossier à partager (une fois qu'il fini son job à la denrière ligne, il s'efface du dossier à la denrière ligne) 
 $FolderPath =  $PWD.ToString()
 
+# Récupérer le nom de domaine
 $computerName = $env:COMPUTERNAME
 $wmi = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $computerName
 $DomainController = $wmi.Domain
 
-# Récupérer le nom de domaine
+# Récupérer le nom de domaine les deux marchent
 $Domain = Get-ADDomain
 
 # Diviser la racine DNS en composants DC
