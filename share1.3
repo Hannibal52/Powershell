@@ -1,0 +1,230 @@
+# Paramètres
+#chemin d'execution du script copié dans le dossier à partager (une fois qu'il fini son job à la denrière ligne, il s'efface du dossier à la denrière ligne) 
+$FolderPath =  $PWD.ToString()
+
+$computerName = $env:COMPUTERNAME
+$wmi = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $computerName
+$DomainController = $wmi.Domain
+
+# Récupérer le nom de domaine
+$Domain = Get-ADDomain
+
+# Diviser la racine DNS en composants DC
+$DCComponents = $Domain.DNSRoot.Split('.')
+
+# Construire la partie DC du chemin LDAP
+$DCPath = ($DCComponents | ForEach-Object { "DC=$_" }) -join ','
+
+# Construire le chemin LDAP complet de l'OU
+$OUPath = "OU=$($Domain.Name),$DCPath"
+
+# Importer les modules nécessaires
+if (-not (Get-Module -Name "ActiveDirectory")) {
+    Import-Module ActiveDirectory -ErrorAction Stop
+}
+
+# Fonction pour vérifier si un dossier est partagé
+function Get-SharedFolder { param ( [string]$FolderPath )
+    $shares = Get-SmbShare -ErrorAction SilentlyContinue
+    return $shares | Where-Object { $_.Path -eq $FolderPath }
+}
+
+# Fonction pour récupérer la liste des groupes globaux
+function Get-ADGlobalGroups { param ([string]$DomainController )
+    return $groupeG = Get-ADGroup -Filter * -Server $DomainController | Where-Object { $_.GroupScope -eq "Global" -and $_.Name.StartsWith("GG") } | Sort-Object -Property Name
+}
+
+# Fonction pour afficher un formulaire avec la liste des groupes globaux
+function Show-GlobalGroupsForm { param ( [string[]]$GlobalGroups, [string[]]$groupNames )
+
+    #création du la fenêtre 
+    Add-Type -AssemblyName System.Windows.Forms
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "Share"
+    $form.Size = New-Object System.Drawing.Size(600, 700)
+    $form.StartPosition = "CenterScreen"
+    
+    # Créer label 1
+    $label1 = New-Object System.Windows.Forms.Label
+    $label1.Location = New-Object System.Drawing.Point(25,70)
+    $label1.Size = New-Object System.Drawing.Size(200,20)
+    $label1.Text = "Groupes locaux"
+    
+    # Créer label 2
+    $label12 = New-Object System.Windows.Forms.Label
+    $label12.Location = New-Object System.Drawing.Point(25,330)
+    $label12.Size = New-Object System.Drawing.Size(200,20)
+    $label12.Text = "membres :"
+    
+    #listview pour les groupe globaux
+    $GG = New-Object System.Windows.Forms.ListView
+    $GG.Location = New-Object System.Drawing.Point(300, 90)
+    $GG.Size = New-Object System.Drawing.Size(200, 560)
+    $GG.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $gg.Visible = $false
+    $col = New-Object System.Windows.Forms.ColumnHeader
+    $gg.View = [System.Windows.Forms.View]::Details
+    $GG.FullRowSelect = $false
+    $col.Text = "Groupes glbaux"
+    $col.Width = 200
+    $GG.Columns.Add($col) 
+    
+    #listview pour les membre des groupes locaux
+    $newGG = New-Object System.Windows.Forms.ListView
+    $newGG.Location = New-Object System.Drawing.Point(25, 350)
+    $newGG.Size = New-Object System.Drawing.Size(200, 300)
+    $newGG.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $newGG.View = [System.Windows.Forms.View]::Details
+    $col1 = New-Object System.Windows.Forms.ColumnHeader
+    $col1.Text = "Membres"
+    $col1.Width = 200
+    $NewGG.Columns.Add($col1) 
+    
+    #listbox pour les groupe locaux
+    $DL = New-Object System.Windows.Forms.ListBox
+    $DL.Location = New-Object System.Drawing.Point(25, 90)
+    $DL.Size = New-Object System.Drawing.Size(200, 200)
+    $DL.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+
+    foreach ($group in $GlobalGroups) { 
+        $firstEqualIndex = $group.IndexOf('=')
+        $firstCommaIndex = $group.IndexOf(',')
+        $extractedString = $group.Substring($firstEqualIndex + 1, $firstCommaIndex - $firstEqualIndex - 1)
+        $item = New-Object System.Windows.Forms.ListViewItem($extractedString) 
+        $GG.Items.Add($item)
+        $GG.Refresh()
+    }
+
+    foreach ($groupName in $groupNames) {
+            $DL.Items.Add($groupName)
+   }
+
+    $GG.Add_MouseDoubleClick({
+        $GroupeG = $GG.SelectedItems[0].Text        
+        $localGroup = $DL.SelectedItems[0]      
+        Add-ADGroupMember -Identity $localGroup -Members $GroupeG 
+        $localGroupMembers = Get-ADGroupMember $DL.SelectedItems[0]
+        $newGG.Clear()
+        $col1 = New-Object System.Windows.Forms.ColumnHeader
+        $col1.Text = "Ajouter GG"
+        $col1.Width = 200
+        $NewGG.Columns.Add($col1)
+
+        foreach ( $localGroupMember in $localGroupMembers) {     
+            $item = New-Object System.Windows.Forms.ListViewItem($localGroupMember.name) 
+            $newGG.Items.Add($item)
+            $newGG.Refresh()
+         }
+    })
+    
+    $DL.Add_Click({
+        $localGroupMembers = Get-ADGroupMember $DL.SelectedItems[0]
+        $gg.Visible = $true
+        $newGG.Clear()
+        $col1 = New-Object System.Windows.Forms.ColumnHeader
+        $col1.Text = "Membres"
+        $col1.Width = 200
+        $NewGG.Columns.Add($col1)
+
+        foreach ( $localGroupMember in $localGroupMembers) {
+    
+          $item = New-Object System.Windows.Forms.ListViewItem($localGroupMember.name) 
+          $newGG.Items.Add($item)
+          $newGG.Refresh()
+       }    
+     })
+   
+    $form.controls.Add($label12)
+    $form.controls.Add($label1)
+    $form.Controls.Add($newGG)
+    $form.Controls.Add($GG)
+    $form.Controls.Add($DL)
+    $form.ShowDialog()
+}
+
+# Vérifier si le dossier est partagé
+$sharedFolder = Get-SharedFolder -FolderPath $FolderPath
+
+$ComputerSystem = Get-WmiObject -Class Win32_ComputerSystem
+
+
+if ($ComputerSystem.PartOfDomain) {
+    
+    if ($sharedFolder) {
+
+      # Charger l'assembly System.Windows.Forms
+      Add-Type -AssemblyName System.Windows.Forms
+      
+      # Afficher la boîte de dialogue
+      [System.Windows.Forms.MessageBox]::Show("Dossier déja partagé                                               ")
+      exit
+  } 
+
+   else {
+    # Créer les noms des groupes locaux
+    $folderName = (Get-Item $FolderPath).Name
+    $groupNames = "DL_${folderName}_r", "DL_${folderName}_RW", "DL_${folderName}_FC"
+
+    # Créer les groupes locaux
+    foreach ($groupName in $groupNames) {
+        New-ADGroup -Name $GroupName -GroupScope DomainLocal -GroupCategory Security -Path $OUPath -Server $DomainController -ErrorAction Stop
+    }
+    
+     # Crée une chaîne de six caractères aléatoires pour le nom de partage  à enlever après les tests
+     $chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+     $randomString = ""
+     for ($i = 0; $i -lt 8; $i++) {
+         $randomString += $chars[(Get-Random -Minimum 0 -Maximum $chars.Length)]
+     }
+
+    $domainshare = [System.Environment]::GetEnvironmentVariable("USERDOMAIN")
+    New-SmbShare -Name $randomString -Path $FolderPath 
+
+    # Récupération des ACL existantes sur le dossier de partage
+    $Acl = Get-Acl $FolderPath
+    #supprimer les autorisation des utilisateurs 
+    $utilisateurs = New-Object System.Security.Principal.NTAccount("$domainshare\Utilisateurs")
+    $acl.Access | where {$_.IdentityReference -eq $utilisateurs} | foreach { $acl.RemoveAccessRule($_) }
+    Set-Acl $FolderPath $acl
+
+    #noms des groupe locals
+    $R = "DL_${folderName}_r"
+    $RW = "DL_${folderName}_RW"
+    $FC = "DL_${folderName}_FC"
+
+    # Ajout des autorisations pour le groupe R en lecture seule
+    $SR = "$domainShare\$R"
+    $Ar = New-Object System.Security.AccessControl.FileSystemAccessRule("$SR","ReadAndExecute","Allow")
+    $Acl.SetAccessRule($Ar) 
+    
+    # Ajout des autorisations pour le groupe RW en lecture et écriture
+    $SRW = "$domainShare\$RW"
+    $Ar2 = New-Object System.Security.AccessControl.FileSystemAccessRule("$SRW","Modify","Allow")
+    $Acl.SetAccessRule($Ar2)
+ 
+    # Ajout des autorisations pour le groupe FC en contrôle total
+    $SFC = "$domainShare\$FC"
+    $Ar3 = New-Object System.Security.AccessControl.FileSystemAccessRule("$SFC","FullControl","Allow")
+    $Acl.SetAccessRule($Ar3)
+    
+    # Application des nouvelles ACL sur le dossier de partage
+    Set-Acl $FolderPath $Acl
+  }  
+}
+
+ else {
+      Add-Type -AssemblyName System.Windows.Forms
+      
+      # Afficher la boîte de dialogue 
+      [System.Windows.Forms.MessageBox]::Show("Vous n'êtes pas sur un domaine                                     ")
+      exit  
+}
+
+# Afficher la liste des groupes globaux
+$globalGroups = Get-ADGlobalGroups -DomainController $DomainController
+Show-GlobalGroupsForm -GlobalGroups $globalGroups -groupNames $groupNames  
+
+#Una mattina mi son’svegliato
+#O bella ciao, bella ciao, o bella ciao ciao ciao
+#Una mattina mi son’svegliato , Eo ho trovato l’invasore
+Remove-Item -Path $MyInvocation.MyCommand.Path
