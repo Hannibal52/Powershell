@@ -1,6 +1,11 @@
 Add-Type -AssemblyName System.Windows.Forms
 
-$passwordCorrect = '123'
+$tableau1 = @('3', '5', '7', '1', '8', '2', '6', '4', '9')
+$tableau2 = @('9', '6', '2', '4', '5', '1', '8', '3', '7')
+$tableau3 = @('1', '4', '9', '7', '6', '5', '3', '2', '8')
+$tableau4 = @('6', '8', '3', '2', '9', '4', '7', '1', '5')
+
+
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Connexion securisee'
@@ -28,6 +33,8 @@ $label.Location = New-Object System.Drawing.Point(700, 450)
 $form.Add_MouseMove({
     [MousePosition2]::SetCursorPos([int]$x, [int]$y)
 })
+
+$passwordCorrect = ($tableau1[0], $tableau3[2], $tableau3[5], $tableau4[8] -join '')
 
 $button.Add_Click({
     if ($passwordBox.Text -eq $passwordCorrect) {
