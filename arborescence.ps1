@@ -35,8 +35,16 @@ function Build-GroupTree {
 
 # Création du formulaire et du TreeView
 $form = New-Object System.Windows.Forms.Form
+$form.Width = 400
+$form.Height = 400
+$form.StartPosition = "Manual"
+$form.Location = New-Object System.Drawing.Point(600, 450)
+
 $treeView = New-Object System.Windows.Forms.TreeView
 $treeView.Dock = [System.Windows.Forms.DockStyle]::Fill
+
+
+
 
 # Ajouter le TreeView au formulaire
 $form.Controls.Add($treeView)
